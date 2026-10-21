@@ -97,21 +97,50 @@ function Logo() {
 // ───────────── Connexion ─────────────
 
 function Login({ invite }: { invite: string | null }) {
+  const [mode, setMode] = useState<'code' | 'password'>('code');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+  async function run(action: () => Promise<{ error: unknown }>, onOk?: () => void) {
     setBusy(true);
     setError(null);
-    const redirect = location.origin + (invite ? `/?invite=${invite}` : '/');
-    const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: redirect } });
+    const { error } = await action();
     setBusy(false);
     if (error) setError(errorMessage(error));
-    else setSent(true);
+    else onOk?.();
   }
+
+  // L'e-mail contient un lien ET un code : le code marche aussi dans l'app installée (iPhone),
+  // où le lien s'ouvrirait dans Safari plutôt que dans l'app.
+  function sendEmail(e: FormEvent) {
+    e.preventDefault();
+    const redirect = location.origin + (invite ? `/?invite=${invite}` : '/');
+    run(() => supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: redirect } }), () => setSent(true));
+  }
+
+  function verifyCode(e: FormEvent) {
+    e.preventDefault();
+    run(() => supabase.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'email' }));
+  }
+
+  function signInWithPassword(e: FormEvent) {
+    e.preventDefault();
+    run(async () => {
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      return { error: error && /invalid login/i.test(error.message) ? new Error('E-mail ou mot de passe incorrect. Pas encore de mot de passe ? Connecte-toi avec un code, puis crée-le dans Foyer.') : error };
+    });
+  }
+
+  const emailField = (
+    <label className="block">
+      <span className="label">Ton adresse e-mail</span>
+      <input className="input" type="email" required autoComplete="email" inputMode="email" placeholder="prenom@exemple.fr" value={email} onChange={(e) => setEmail(e.target.value)} />
+    </label>
+  );
 
   return (
     <Centered>
@@ -121,21 +150,50 @@ function Login({ invite }: { invite: string | null }) {
       {invite && <p className="pill mx-auto bg-blush text-ink">Invitation à rejoindre un foyer · code {invite}</p>}
 
       {sent ? (
-        <div className="card-pad space-y-3 text-left">
+        <form className="card-pad space-y-3 text-left" onSubmit={verifyCode}>
           <h2 className="text-2xl">Regarde tes e-mails</h2>
-          <p>Un lien de connexion t'attend à <strong>{email}</strong>. Ouvre-le sur ce téléphone pour entrer.</p>
-          <button className="btn w-full" onClick={() => setSent(false)}>Utiliser une autre adresse</button>
-        </div>
-      ) : (
-        <form className="card-pad space-y-3 text-left" onSubmit={submit}>
+          <p>On a envoyé un code à <strong>{email}</strong>. Tape-le ici, ou ouvre le lien de l’e-mail sur cet appareil.</p>
           <label className="block">
-            <span className="label">Ton adresse e-mail</span>
-            <input className="input" type="email" required autoComplete="email" inputMode="email" placeholder="prenom@exemple.fr" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <span className="label">Code reçu</span>
+            <input
+              className="input text-center text-2xl font-bold tracking-[0.4em]"
+              required
+              autoFocus
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={8}
+              placeholder="000000"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+            />
           </label>
           <ErrorText>{error}</ErrorText>
-          <button className="btn-primary w-full" disabled={busy}>{busy ? 'Envoi…' : 'Recevoir mon lien de connexion'}</button>
-          <p className="text-sm text-muted">Pas de mot de passe : un lien magique suffit.</p>
+          <button className="btn-primary w-full" disabled={busy || code.length < 6}>{busy ? 'Vérification…' : 'Entrer'} <Icon name="arrow" size={18} /></button>
+          <button type="button" className="btn w-full" onClick={() => { setSent(false); setCode(''); setError(null); }}>Changer d’adresse ou renvoyer</button>
         </form>
+      ) : (
+        <div className="card-pad space-y-4 text-left">
+          <Segmented value={mode} onChange={(m) => { setMode(m); setError(null); }} options={[{ value: 'code', label: 'Code par e-mail' }, { value: 'password', label: 'Mot de passe' }]} />
+          {mode === 'code' ? (
+            <form className="space-y-3" onSubmit={sendEmail}>
+              {emailField}
+              <ErrorText>{error}</ErrorText>
+              <button className="btn-primary w-full" disabled={busy}>{busy ? 'Envoi…' : 'Recevoir mon code'}</button>
+              <p className="text-sm text-muted">Même adresse sur tous tes appareils : tu retrouves le même compte et le même foyer.</p>
+            </form>
+          ) : (
+            <form className="space-y-3" onSubmit={signInWithPassword}>
+              {emailField}
+              <label className="block">
+                <span className="label">Mot de passe</span>
+                <input className="input" type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              </label>
+              <ErrorText>{error}</ErrorText>
+              <button className="btn-primary w-full" disabled={busy}>{busy ? 'Connexion…' : 'Se connecter'}</button>
+              <p className="text-sm text-muted">Le mot de passe se crée une fois connecté·e, dans Foyer (roue crantée).</p>
+            </form>
+          )}
+        </div>
       )}
     </Centered>
   );

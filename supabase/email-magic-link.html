@@ -1,0 +1,9 @@
+<!-- Supabase → Authentication → Emails → Magic Link. Sujet : Ton code Moitié-Moitié -->
+<div style="font-family: Arial, sans-serif; background:#fffde9; color:#47131c; padding:24px">
+  <h2 style="margin:0 0 12px">Moitié-Moitié</h2>
+  <p>Ton code de connexion :</p>
+  <p style="font-size:32px; font-weight:bold; letter-spacing:8px; margin:8px 0 16px">{{ .Token }}</p>
+  <p>Tape-le dans l'app, ou touche ce lien sur l'appareil où tu veux te connecter :</p>
+  <p><a href="{{ .ConfirmationURL }}" style="display:inline-block; background:#7c0116; color:#fffde9; padding:12px 18px; border-radius:10px; text-decoration:none; font-weight:bold">Me connecter</a></p>
+  <p style="color:#8c5762; font-size:13px">Si tu n'as rien demandé, ignore cet e-mail.</p>
+</div>

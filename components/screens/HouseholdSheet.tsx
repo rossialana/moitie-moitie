@@ -15,6 +15,8 @@ export default function HouseholdSheet({ onClose, onLeft }: { onClose: () => voi
   const [push, setPush] = useState<PushState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [password, setPassword] = useState('');
+  const [passwordSaved, setPasswordSaved] = useState(false);
 
   useEffect(() => {
     pushState().then(setPush);
@@ -47,6 +49,16 @@ export default function HouseholdSheet({ onClose, onLeft }: { onClose: () => voi
     patchLocal('members', m.data);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function savePassword(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) return setError(/should be at least/i.test(error.message) ? 'Le mot de passe doit faire au moins 6 caractères.' : errorMessage(error));
+    setPassword('');
+    setPasswordSaved(true);
+    setTimeout(() => setPasswordSaved(false), 3000);
   }
 
   async function newCode() {
@@ -110,6 +122,13 @@ export default function HouseholdSheet({ onClose, onLeft }: { onClose: () => voi
           <label className="block"><span className="label">Ton prénom</span><input className="input" required value={name} onChange={(e) => setName(e.target.value)} /></label>
           <label className="block"><span className="label">Nom du foyer</span><input className="input" required value={householdName} onChange={(e) => setHouseholdName(e.target.value)} /></label>
           <button className="btn w-full">{saved ? 'Enregistré' : 'Enregistrer'}</button>
+        </form>
+
+        <form className="card-pad space-y-3" onSubmit={savePassword}>
+          <h3 className="text-lg">Mot de passe</h3>
+          <p className="text-sm text-muted">Facultatif : pour te connecter sur un autre appareil avec ton e-mail et ce mot de passe, sans attendre de code.</p>
+          <input className="input" type="password" required minLength={6} autoComplete="new-password" placeholder="6 caractères minimum" value={password} onChange={(e) => setPassword(e.target.value)} aria-label="Nouveau mot de passe" />
+          <button className="btn w-full">{passwordSaved ? 'Mot de passe enregistré' : 'Enregistrer le mot de passe'}</button>
         </form>
 
         <ErrorText>{error}</ErrorText>

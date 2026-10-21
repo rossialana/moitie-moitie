@@ -57,9 +57,15 @@ Les anciens noms `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` sont aussi accep
 ### 5. Après le premier déploiement
 1. Supabase → **Authentication → URL Configuration** : *Site URL* = l'adresse du site ; *Redirect URLs* : ajouter `https://<site>/**`.
 2. **SQL Editor** : ouvrir `supabase/cron.sql`, remplacer `https://TON-SITE` et `REMPLACER_PAR_CRON_SECRET`, exécuter. (Le cron de Vercel en offre gratuite ne passe qu'une fois par jour, d'où pg_cron.)
-3. Optionnel : **Authentication → Email Templates** pour traduire l'e-mail du lien magique.
+3. **Authentication → Emails → Magic Link** : sujet « Ton code Moitié-Moitié », corps = contenu de `supabase/email-magic-link.html`. Indispensable pour que l'e-mail contienne le **code à 6 chiffres** (sinon il n'y a que le lien). Faire de même pour **Confirm signup** (premier e-mail d'un nouveau compte).
 
 Sur iPhone, les notifications ne marchent que si l'app est ajoutée à l'écran d'accueil (Safari → Partager → « Sur l'écran d'accueil », iOS 16.4+), puis activées dans le Foyer (roue crantée).
+
+## Connexion
+
+- **Code par e-mail** : on saisit son e-mail, on reçoit un code (et un lien). Le code se tape dans l'app : indispensable sur iPhone quand l'app est sur l'écran d'accueil, car le lien s'ouvre dans Safari, pas dans l'app.
+- **Mot de passe** (facultatif) : une fois connecté·e, Foyer → Mot de passe. Ensuite, e-mail + mot de passe sur n'importe quel appareil.
+- Même e-mail = même compte = même foyer, sur tous les appareils. Chaque appareil reste connecté.
 
 ## Données d'exemple (deux personnes)
 
