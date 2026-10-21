@@ -247,6 +247,21 @@ grant execute on function public.create_household(text, text, text) to authentic
 grant execute on function public.join_household(text, text)         to authenticated;
 grant execute on function public.regenerate_invite_code(uuid)        to authenticated;
 
+-- Droits explicites : marche même si « Automatically expose new tables » est décoché.
+-- Seuls les utilisateurs connectés y ont accès ; la RLS filtre ensuite par foyer.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on
+  public.households, public.members, public.tasks, public.task_occurrences,
+  public.shopping_lists, public.shopping_items, public.pantry_products,
+  public.reminders, public.notes
+to authenticated;
+revoke all on
+  public.households, public.members, public.tasks, public.task_occurrences,
+  public.shopping_lists, public.shopping_items, public.pantry_products,
+  public.reminders, public.notes
+from anon;
+grant execute on function public.is_member(uuid) to authenticated;
+
 -- ───────────────────────── Temps réel ─────────────────────────
 
 -- replica identity full : les DELETE envoient l'ancienne ligne (household_id inclus).
