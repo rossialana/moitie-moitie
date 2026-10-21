@@ -5,3 +5,7 @@
 
 [build.environment]
   NODE_VERSION = "22"
+
+# Runtime Next.js de Netlify (pages, API /api/push/send). Indispensable : sans lui, .next est servi tel quel (404).
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
