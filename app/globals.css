@@ -1,0 +1,54 @@
+@import 'tailwindcss';
+
+/* Classes construites dynamiquement (person-${color}). */
+@source inline('person-rose person-bordeaux');
+
+@theme {
+  --color-cream: #fffde9;
+  --color-ink: #47131c;
+  --color-action: #7c0116;
+  --color-rose: #e0a4b0;
+  --color-blush: #ffd7e7;
+  --color-muted: #8c5762;
+  --font-display: var(--font-anton), Impact, sans-serif;
+  --font-sans: var(--font-poppins), system-ui, sans-serif;
+}
+
+@layer base {
+  html { -webkit-tap-highlight-color: transparent; }
+  body { @apply bg-cream font-sans text-ink antialiased; }
+  h1, h2, h3, .title { @apply font-display uppercase tracking-wide; }
+  button { cursor: pointer; }
+  input, select, textarea { font-size: 16px; } /* évite le zoom iOS */
+  :focus-visible { outline: 3px solid var(--color-rose); outline-offset: 2px; }
+}
+
+/* Cartes : bordure pleine 3px, coins 20px, jamais d'ombre. */
+@utility card { @apply rounded-[20px] border-[3px] border-ink bg-cream; }
+@utility card-pad { @apply card p-4; }
+
+@utility btn {
+  @apply inline-flex min-h-12 items-center justify-center gap-2 rounded-[10px] border-[3px] border-ink bg-cream px-4 font-semibold text-ink disabled:opacity-50;
+}
+@utility btn-primary { @apply btn border-action bg-action text-cream; }
+@utility btn-small { @apply min-h-10 px-3 text-sm; }
+@utility btn-link { @apply inline-flex items-center gap-1 p-1 font-semibold text-action underline-offset-4 hover:underline; }
+
+@utility input {
+  @apply min-h-12 w-full rounded-[10px] border-[3px] border-ink bg-cream px-3 py-2 text-ink placeholder:text-muted/70;
+}
+@utility label { @apply mb-1.5 block text-sm font-semibold; }
+
+@utility pill { @apply inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold; }
+@utility tag { @apply pill border-2 border-ink bg-blush px-2 py-0.5 text-[10px] tracking-wider uppercase; }
+
+/* Personne 1 : rose, texte foncé. Personne 2 : bordeaux, texte clair. */
+@utility person-rose { @apply bg-rose text-ink; }
+@utility person-bordeaux { @apply bg-ink text-cream; }
+
+@utility section-title { @apply mb-2 font-display text-lg tracking-wide uppercase; }
+
+
+@keyframes sheet-in { from { transform: translateY(32px); opacity: 0.6; } }
+.sheet-in { animation: sheet-in 0.2s ease-out; }
+@media (prefers-reduced-motion: reduce) { .sheet-in { animation: none; } }

@@ -50,6 +50,20 @@ export function formatTime(d: Date): string {
   return fmtTime.format(d);
 }
 
+/** Date du jour et heure HH:MM dans un fuseau donné (pour le serveur). */
+export function nowInZone(timeZone: string, at = new Date()): { date: string; time: string } {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+      .formatToParts(at)
+      .map((p) => [p.type, p.value]),
+  );
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
+}
+
+export function weekdayLong(s: string): string {
+  return new Intl.DateTimeFormat('fr-FR', { weekday: 'long' }).format(parseISODate(s));
+}
+
 export function relativeDay(s: string): string {
   const diff = daysBetween(today(), s);
   if (diff === 0) return "Aujourd'hui";

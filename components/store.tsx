@@ -1,15 +1,17 @@
+'use client';
+
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { RealtimePostgresChangesPayload, Session } from '@supabase/supabase-js';
-import { supabase } from './lib/supabase.ts';
-import { addDays, today } from './lib/dates.ts';
-import { assigneeFor, dueDatesBetween, pantryDaysLeft, pantryThreshold } from './lib/schedule.ts';
+import { supabase } from '@/lib/supabase.ts';
+import { addDays, today } from '@/lib/dates.ts';
+import { HORIZON_DAYS, isRunningLow, planOccurrences } from '@/lib/schedule.ts';
 import type {
-  Household, Member, Note, PantryProduct, Reminder, ShoppingItem, ShoppingList, Task, TaskOccurrence,
-} from './lib/types.ts';
+  Household, Member, Note, PantryProduct, Reminder, ShoppingItem, ShoppingList, SuggestionDismissal, Task, TaskOccurrence,
+} from '@/lib/types.ts';
 
 // Fenêtre d'occurrences chargées et générées autour d'aujourd'hui.
 const PAST_DAYS = 14;
-const FUTURE_DAYS = 21;
+const FUTURE_DAYS = HORIZON_DAYS;
 
 export interface HouseholdData {
   household: Household;
@@ -21,6 +23,7 @@ export interface HouseholdData {
   pantry: PantryProduct[];
   reminders: Reminder[];
   notes: Note[];
+  dismissals: SuggestionDismissal[];
 }
 
 type TableKey = Exclude<keyof HouseholdData, 'household'>;
@@ -34,6 +37,7 @@ const TABLES: Record<TableKey, string> = {
   pantry: 'pantry_products',
   reminders: 'reminders',
   notes: 'notes',
+  dismissals: 'suggestion_dismissals',
 };
 
 interface Ctx {
@@ -45,7 +49,18 @@ interface Ctx {
   patchLocal: <K extends TableKey>(key: K, row: HouseholdData[K][number]) => void;
   removeLocal: (key: TableKey, id: string) => void;
   regenerateTaskOccurrences: (task: Task) => Promise<void>;
+  /** Donne ce tour à quelqu'un d'autre ; en rotation, les tours suivants se réorganisent. */
+  swapOccurrence: (o: TaskOccurrence, to: string) => Promise<void>;
+  moveOccurrence: (o: TaskOccurrence, to: string) => Promise<void>;
   online: boolean;
+}
+
+export function Loading() {
+  return (
+    <div className="flex min-h-dvh items-center justify-center">
+      <div className="size-8 animate-spin rounded-full border-[3px] border-blush border-t-action" />
+    </div>
+  );
 }
 
 const StoreContext = createContext<Ctx | null>(null);
@@ -68,7 +83,7 @@ async function fetchAll(householdId: string): Promise<HouseholdData> {
   const from = addDays(today(), -PAST_DAYS);
   const to = addDays(today(), FUTURE_DAYS);
   const q = (table: string) => supabase.from(table).select('*').eq('household_id', householdId);
-  const [household, members, tasks, occurrences, lists, items, pantry, reminders, notes] = await Promise.all([
+  const [household, members, tasks, occurrences, lists, items, pantry, reminders, notes, dismissals] = await Promise.all([
     supabase.from('households').select('*').eq('id', householdId).single<Household>(),
     q('members').order('created_at').returns<Member[]>(),
     q('tasks').order('created_at').returns<Task[]>(),
@@ -78,8 +93,9 @@ async function fetchAll(householdId: string): Promise<HouseholdData> {
     q('pantry_products').order('name').returns<PantryProduct[]>(),
     q('reminders').order('due_at').returns<Reminder[]>(),
     q('notes').order('updated_at', { ascending: false }).returns<Note[]>(),
+    q('suggestion_dismissals').returns<SuggestionDismissal[]>(),
   ]);
-  const err = [household, members, tasks, occurrences, lists, items, pantry, reminders, notes].find((r) => r.error)?.error;
+  const err = [household, members, tasks, occurrences, lists, items, pantry, reminders, notes, dismissals].find((r) => r.error)?.error;
   if (err) throw err;
   return {
     household: household.data!,
@@ -91,29 +107,19 @@ async function fetchAll(householdId: string): Promise<HouseholdData> {
     pantry: pantry.data ?? [],
     reminders: reminders.data ?? [],
     notes: notes.data ?? [],
+    dismissals: (dismissals.data ?? []).map((d) => ({ ...d, id: d.key })),
   };
 }
 
 /** Crée les occurrences manquantes (les deux téléphones peuvent le faire en même temps : la contrainte unique tranche). */
 async function ensureOccurrences(data: HouseholdData, onlyTask?: Task) {
-  const from = today();
-  const to = addDays(from, FUTURE_DAYS);
-  const memberIds = data.members.map((m) => m.id);
-  const existing = new Set(data.occurrences.map((o) => `${o.task_id}|${o.date}`));
-  const rows: Omit<TaskOccurrence, 'id' | 'completed_by' | 'completed_at'>[] = [];
-  for (const task of onlyTask ? [onlyTask] : data.tasks) {
-    if (!task.active) continue;
-    for (const date of dueDatesBetween(task, from, to)) {
-      if (existing.has(`${task.id}|${date}`)) continue;
-      rows.push({
-        task_id: task.id,
-        household_id: task.household_id,
-        date,
-        assigned_member_id: assigneeFor(task, date, memberIds),
-        completed: false,
-      });
-    }
-  }
+  const rows = planOccurrences(
+    onlyTask ? [onlyTask] : data.tasks,
+    data.members.map((m) => m.id),
+    data.occurrences,
+    today(),
+    addDays(today(), FUTURE_DAYS),
+  );
   if (!rows.length) return;
   const { error } = await supabase.from('task_occurrences').upsert(rows, { onConflict: 'task_id,date', ignoreDuplicates: true });
   if (error) console.error(error);
@@ -125,7 +131,7 @@ async function ensurePantryItems(data: HouseholdData, me: Member) {
   if (!list) return;
   const pending = new Set(data.items.filter((i) => !i.purchased && i.pantry_product_id).map((i) => i.pantry_product_id));
   const rows = data.pantry
-    .filter((p) => !pending.has(p.id) && pantryDaysLeft(p.last_purchased_on, p.duration_days, today()) <= pantryThreshold(p.duration_days))
+    .filter((p) => !pending.has(p.id) && isRunningLow(p.last_purchased_on, p.duration_days, today()))
     .map((p) => ({
       list_id: list.id,
       household_id: data.household.id,
@@ -145,7 +151,7 @@ async function ensurePantryItems(data: HouseholdData, me: Member) {
 export function StoreProvider({ session, householdId, children }: { session: Session; householdId: string; children: ReactNode }) {
   const [data, setData] = useState<HouseholdData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [online, setOnline] = useState(navigator.onLine);
+  const [online, setOnline] = useState(true);
   const dataRef = useRef<HouseholdData | null>(null);
   dataRef.current = data;
 
@@ -160,6 +166,7 @@ export function StoreProvider({ session, householdId, children }: { session: Ses
 
   useEffect(() => {
     reload();
+    setOnline(navigator.onLine);
   }, [reload]);
 
   // Temps réel : une seule chaîne pour tout le foyer.
@@ -178,8 +185,9 @@ export function StoreProvider({ session, householdId, children }: { session: Ses
           setData((d) => {
             if (!d) return d;
             const rows = d[key] as { id: string }[];
-            if (p.eventType === 'DELETE') return { ...d, [key]: rows.filter((r) => r.id !== (p.old as { id: string }).id) };
-            return { ...d, [key]: upsertById(rows, p.new) };
+            const withId = (r: unknown) => (key === 'dismissals' ? { ...(r as object), id: (r as { key: string }).key } : r) as { id: string };
+            if (p.eventType === 'DELETE') return { ...d, [key]: rows.filter((r) => r.id !== withId(p.old).id) };
+            return { ...d, [key]: upsertById(rows, withId(p.new)) };
           });
         },
       );
@@ -231,21 +239,48 @@ export function StoreProvider({ session, householdId, children }: { session: Ses
     setData((d) => (d ? { ...d, [key]: (d[key] as { id: string }[]).filter((r) => r.id !== id) } : d));
   }, []);
 
-  const regenerateTaskOccurrences = useCallback(async (task: Task) => {
-    // Les occurrences futures non faites sont recalculées (le passé et ce qui est fait ne bougent pas).
-    const { error } = await supabase
-      .from('task_occurrences')
-      .delete()
-      .eq('task_id', task.id)
-      .eq('completed', false)
-      .gte('date', today());
+  /** Supprime les occurrences non faites à partir de `from` (exclu si `strictlyAfter`) puis les régénère. */
+  const replanFrom = useCallback(async (task: Task, from: string, strictlyAfter: boolean) => {
+    let del = supabase.from('task_occurrences').delete().eq('task_id', task.id).eq('completed', false);
+    del = strictlyAfter ? del.gt('date', from) : del.gte('date', from);
+    const { error } = await del;
     if (error) throw error;
     const d = dataRef.current;
     if (!d) return;
-    const kept = d.occurrences.filter((o) => o.task_id !== task.id || o.completed || o.date < today());
-    setData({ ...d, occurrences: kept });
-    await ensureOccurrences({ ...d, occurrences: kept }, task);
+    const kept = d.occurrences.filter((o) => o.task_id !== task.id || o.completed || (strictlyAfter ? o.date <= from : o.date < from));
+    const next = { ...d, occurrences: kept };
+    dataRef.current = next;
+    setData(next);
+    await ensureOccurrences(next, task);
   }, []);
+
+  // Les occurrences futures non faites sont recalculées (le passé et ce qui est fait ne bougent pas).
+  const regenerateTaskOccurrences = useCallback((task: Task) => replanFrom(task, today(), false), [replanFrom]);
+
+  const swapOccurrence = useCallback(async (o: TaskOccurrence, to: string) => {
+    patchLocal('occurrences', { ...o, assigned_member_id: to });
+    const { error } = await supabase.from('task_occurrences').update({ assigned_member_id: to }).eq('id', o.id);
+    if (error) {
+      patchLocal('occurrences', o);
+      throw error;
+    }
+    const task = dataRef.current?.tasks.find((t) => t.id === o.task_id);
+    if (task?.assignment_mode === 'rotating') {
+      const d = dataRef.current!;
+      dataRef.current = { ...d, occurrences: d.occurrences.map((x) => (x.id === o.id ? { ...x, assigned_member_id: to } : x)) };
+      await replanFrom(task, o.date, true);
+    }
+  }, [patchLocal, replanFrom]);
+
+  const moveOccurrence = useCallback(async (o: TaskOccurrence, to: string) => {
+    const moved = { ...o, date: to, moved_from: o.moved_from ?? o.date };
+    patchLocal('occurrences', moved);
+    const { error } = await supabase.from('task_occurrences').update({ date: moved.date, moved_from: moved.moved_from }).eq('id', o.id);
+    if (error) {
+      patchLocal('occurrences', o);
+      throw error;
+    }
+  }, [patchLocal]);
 
   const value = useMemo<Ctx | null>(() => {
     if (!data || !me) return null;
@@ -257,19 +292,21 @@ export function StoreProvider({ session, householdId, children }: { session: Ses
       patchLocal,
       removeLocal,
       regenerateTaskOccurrences,
+      swapOccurrence,
+      moveOccurrence,
       online,
     };
-  }, [data, me, patchLocal, removeLocal, regenerateTaskOccurrences, online]);
+  }, [data, me, patchLocal, removeLocal, regenerateTaskOccurrences, swapOccurrence, moveOccurrence, online]);
 
   if (error) {
     return (
-      <div className="center-screen">
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-6 text-center">
         <p>Impossible de charger le foyer.</p>
-        <p className="muted small">{error}</p>
+        <p className="text-sm text-muted">{error}</p>
         <button className="btn" onClick={reload}>Réessayer</button>
       </div>
     );
   }
-  if (!value) return <div className="center-screen"><div className="spinner" /></div>;
+  if (!value) return <Loading />;
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

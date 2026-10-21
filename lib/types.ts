@@ -3,7 +3,7 @@ export type Frequency = 'daily' | 'weekly' | 'biweekly' | 'monthly';
 export type AssignmentMode = 'fixed' | 'rotating' | 'together';
 export type Repeat = 'none' | 'yearly' | 'monthly';
 
-export interface Household { id: string; name: string; invite_code: string; created_at: string }
+export interface Household { id: string; name: string; invite_code: string; timezone: string; created_at: string }
 export interface Member { id: string; household_id: string; user_id: string; name: string; color: Color; created_at: string }
 
 export interface Task {
@@ -30,7 +30,11 @@ export interface TaskOccurrence {
   completed: boolean;
   completed_by: string | null;
   completed_at: string | null;
+  moved_from: string | null;
 }
+
+/** `id` est synthétique (= key) côté client, pour la synchro. */
+export interface SuggestionDismissal { id: string; household_id: string; key: string; created_at: string }
 
 export interface ShoppingList { id: string; household_id: string; name: string; shopper_id: string | null; date: string | null; created_at: string }
 
@@ -94,11 +98,6 @@ export const FREQUENCY_LABELS: Record<Frequency, string> = {
   monthly: 'Tous les mois',
 };
 
-export const MODE_LABELS: Record<AssignmentMode, string> = {
-  fixed: 'Toujours la même personne',
-  rotating: 'Chacun son tour',
-  together: 'Ensemble',
-};
 
 export const REPEAT_LABELS: Record<Repeat, string> = {
   none: 'Une seule fois',

@@ -1,12 +1,7 @@
+# Netlify détecte Next.js tout seul ; ce fichier fixe juste la commande et la version de Node.
 [build]
   command = "npm run build"
-  publish = "dist"
+  publish = ".next"
 
 [build.environment]
   NODE_VERSION = "22"
-
-# App d'une seule page : toute URL inconnue renvoie vers index.html.
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
